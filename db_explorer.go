@@ -101,12 +101,12 @@ func (receiver *RequestParams) ParseRequestURL(url *url.URL) error {
 		ls := q.Get("limit")
 		os := q.Get("offset")
 		l, e := strconv.Atoi(ls)
-		if e != nil {
+		if len(ls) > 0 && e != nil {
 			return e
 		}
 		receiver.Limit = l
 		o, e := strconv.Atoi(os)
-		if e != nil {
+		if len(ls) > 0 && e != nil {
 			return e
 		}
 		receiver.Offset = o
