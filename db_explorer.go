@@ -130,7 +130,7 @@ func (explorer *DbExplorer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//GET /$table/$id - возвращает информацию о самой записи или 404
 	//PUT /$table - создаёт новую запись, данный по записи в теле запроса (POST- параметры)
 	//POST /$table/$id - обновляет запись, данные приходят в теле запроса (POST- параметры)
-	//DELETE /$table/$id - удаляет запись
+	//DELETE /$table/$id -  удаляет запись
 
 	switch r.Method {
 	case "GET":
