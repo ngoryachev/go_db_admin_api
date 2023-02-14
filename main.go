@@ -3,7 +3,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"net/http"
 
@@ -19,13 +18,13 @@ var (
 )
 
 func main() {
-	db, err := sql.Open("mysql", DSN)
-	err = db.Ping() // вот тут будет первое подключение к базе
-	if err != nil {
-		panic(err)
-	}
+	//db, err := sql.Open("mysql", DSN)
+	//err = db.Ping() // вот тут будет первое подключение к базе
+	//if err != nil {
+	//	panic(err)
+	//}
 
-	handler, err := NewDbExplorer(db)
+	handler, err := NewDbExplorer(nil)
 	if err != nil {
 		panic(err)
 	}
