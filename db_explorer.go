@@ -10,14 +10,86 @@ import (
 	"strings"
 )
 
+func readTables(db *sql.DB) ([]string, error) {
+	rows, qe := db.Query("SHOW TABLES")
+
+	if qe != nil {
+		return nil, qe
+	}
+
+	var tables []string
+	for rows.Next() {
+		tableName := ""
+		se := rows.Scan(&tableName)
+
+		if se != nil {
+			return nil, se
+		}
+
+		tables = append(tables, tableName)
+	}
+	ce := rows.Close()
+
+	if ce != nil {
+		return nil, ce
+	}
+
+	return tables, nil
+}
+
+func readTypes(db *sql.DB, tableName string) ([]*sql.ColumnType, error) {
+	rows, qe := db.Query("SELECT * FROM ?", tableName)
+
+	if qe != nil {
+		return nil, qe
+	}
+	colTypes, cte := rows.ColumnTypes()
+
+	if cte != nil {
+		return nil, cte
+	}
+	var columnTypes []*sql.ColumnType
+	for _, ct := range colTypes {
+		columnTypes = append(columnTypes, ct)
+	}
+	cle := rows.Close()
+
+	if cle != nil {
+		return nil, cle
+	}
+
+	return columnTypes, nil
+}
+
 func NewDbExplorer(db *sql.DB) (http.Handler, error) {
+	tableColumns := map[string][]*sql.ColumnType{}
+	tables, e := readTables(db)
+
+	if e != nil {
+		return nil, e
+	}
+
+	for _, t := range tables {
+		columnTypes, e := readTypes(db, t)
+
+		if e != nil {
+			return nil, e
+		}
+
+		tableColumns[t] = columnTypes
+	}
+
+	fmt.Printf("tableColumns: %v", tableColumns)
+
 	return &DbExplorer{
-		db: db,
+		db:           db,
+		tableColumns: tableColumns,
 	}, nil
 }
 
 type DbExplorer struct {
-	db *sql.DB
+	db           *sql.DB
+	tableColumns map[string][]*sql.ColumnType
 }
 
 type ApiError struct {
