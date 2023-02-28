@@ -38,7 +38,8 @@ func readTables(db *sql.DB) ([]string, error) {
 }
 
 func readTypes(db *sql.DB, tableName string) ([]*sql.ColumnType, error) {
-	rows, qe := db.Query("SELECT * FROM ?", tableName)
+	s := fmt.Sprintf("SELECT * FROM %s", tableName)
+	rows, qe := db.Query(s)
 
 	if qe != nil {
 		return nil, qe
@@ -65,6 +66,8 @@ func NewDbExplorer(db *sql.DB) (http.Handler, error) {
 	tableColumns := map[string][]*sql.ColumnType{}
 	tables, e := readTables(db)
 
+	fmt.Printf("tables: %v\n", tables)
+
 	if e != nil {
 		return nil, e
 	}
@@ -79,7 +82,13 @@ func NewDbExplorer(db *sql.DB) (http.Handler, error) {
 		tableColumns[t] = columnTypes
 	}
 
-	fmt.Printf("tableColumns: %v", tableColumns)
+	for t, v := range tableColumns {
+		for _, ct := range v {
+			nullable, _ := ct.Nullable()
+
+			fmt.Printf("[%v][%v][%v][%v]\n", t, ct.Name(), ct.DatabaseTypeName(), nullable)
+		}
+	}
 
 	return &DbExplorer{
 		db:           db,
