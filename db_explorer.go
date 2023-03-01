@@ -91,14 +91,14 @@ func NewDbExplorer(db *sql.DB) (http.Handler, error) {
 	}
 
 	return &DbExplorer{
-		db:           db,
-		tableColumns: tableColumns,
+		db:          db,
+		columnTypes: tableColumns,
 	}, nil
 }
 
 type DbExplorer struct {
-	db           *sql.DB
-	tableColumns map[string][]*sql.ColumnType
+	db          *sql.DB
+	columnTypes map[string][]*sql.ColumnType
 }
 
 type ApiError struct {
@@ -208,18 +208,100 @@ func (receiver *RequestParams) ParseRequestURL(url *url.URL) error {
 	return nil
 }
 
+func rowsToJson(rows *sql.Rows) ([]interface{}, error) {
+	columnTypes, err := rows.ColumnTypes()
+
+	if err != nil {
+		return nil, err
+	}
+
+	count := len(columnTypes)
+	finalRows := make([]interface{}, 0, 10)
+
+	for rows.Next() {
+		scanArgs := make([]interface{}, count)
+
+		// заполняем scanArgs указателями на соответсвующий тип
+		for i, v := range columnTypes {
+			switch v.DatabaseTypeName() {
+			case "VARCHAR", "TEXT", "UUID", "TIMESTAMP":
+				scanArgs[i] = new(sql.NullString)
+				break
+			case "BOOL":
+				scanArgs[i] = new(sql.NullBool)
+				break
+			case "INT4":
+				scanArgs[i] = new(sql.NullInt64)
+				break
+			default:
+				scanArgs[i] = new(sql.NullString)
+			}
+		}
+
+		err := rows.Scan(scanArgs...)
+
+		if err != nil {
+			return nil, err
+		}
+
+		masterData := map[string]interface{}{}
+
+		// на основе scanArgs раскладываем в мапу masterData правильные значения
+		for i, v := range columnTypes {
+			if z, ok := (scanArgs[i]).(*sql.NullBool); ok {
+				masterData[v.Name()] = z.Bool
+				continue
+			}
+
+			if z, ok := (scanArgs[i]).(*sql.NullString); ok {
+				masterData[v.Name()] = z.String
+				continue
+			}
+
+			if z, ok := (scanArgs[i]).(*sql.NullInt64); ok {
+				masterData[v.Name()] = z.Int64
+				continue
+			}
+
+			if z, ok := (scanArgs[i]).(*sql.NullFloat64); ok {
+				masterData[v.Name()] = z.Float64
+				continue
+			}
+
+			if z, ok := (scanArgs[i]).(*sql.NullInt32); ok {
+				masterData[v.Name()] = z.Int32
+				continue
+			}
+
+			masterData[v.Name()] = scanArgs[i]
+		}
+
+		finalRows = append(finalRows, masterData)
+	}
+
+	return finalRows, nil
+}
+
 //GET / - возвращает список все таблиц (которые мы можем использовать в дальнейших запросах)
 func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, r *http.Request) {
-	rp := &RequestParams{}
-	panicOnError(rp.ParseRequestURL(r.URL))
-	handleServerResponse(w, rp)
+	var keys []string
+	for k, _ := range explorer.columnTypes {
+		keys = append(keys, k)
+	}
+	handleServerResponse(w, keys)
 }
 
 //GET /$table?limit=5&offset=7 - возвращает список из 5 записей (limit) начиная с 7-й (offset) из таблицы $table. limit по-умолчанию 5, offset 0
 func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	handleServerResponse(w, rp)
+	rows, qe := explorer.db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT %d OFFSET %d", rp.Table, rp.Limit, rp.Offset))
+	panicOnError(qe)
+	js, je := rowsToJson(rows)
+	panicOnError(je)
+	err := rows.Close()
+	panicOnError(err)
+	handleServerResponse(w, js)
 }
 
 //GET /$table/$id - возвращает информацию о самой записи или 404
