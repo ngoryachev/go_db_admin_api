@@ -286,7 +286,9 @@ func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, r *htt
 	for k, _ := range explorer.columnTypes {
 		keys = append(keys, k)
 	}
-	handleServerResponse(w, keys)
+	handleServerResponse(w, map[string]interface{}{
+		"tables": keys,
+	})
 }
 
 //GET /$table?limit=5&offset=7 - возвращает список из 5 записей (limit) начиная с 7-й (offset) из таблицы $table. limit по-умолчанию 5, offset 0
@@ -299,14 +301,31 @@ func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *htt
 	panicOnError(je)
 	err := rows.Close()
 	panicOnError(err)
-	handleServerResponse(w, js)
+	handleServerResponse(w, map[string]interface{}{
+		"records": js,
+	})
 }
 
 //GET /$table/$id - возвращает информацию о самой записи или 404
 func (explorer *DbExplorer) handleGetTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	handleServerResponse(w, rp)
+	rows, qe := explorer.db.Query(fmt.Sprintf("SELECT * FROM %s WHERE id='%d'", rp.Table, rp.Id))
+	panicOnError(qe)
+	js, je := rowsToJson(rows)
+	panicOnError(je)
+	err := rows.Close()
+	panicOnError(err)
+	var record interface{}
+	if len(js) == 0 {
+		record = nil
+	}
+	if len(js) > 0 {
+		record = js[0]
+	}
+	handleServerResponse(w, map[string]interface{}{
+		"record": record,
+	})
 }
 
 //PUT /$table - создаёт новую запись, данный по записи в теле запроса (POST- параметры)
@@ -327,7 +346,13 @@ func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http
 func (explorer *DbExplorer) handleDeleteTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	handleServerResponse(w, rp)
+	result, ee := explorer.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE id='%d'", rp.Table, rp.Id))
+	panicOnError(ee)
+	affected, ae := result.RowsAffected()
+	panicOnError(ae)
+	handleServerResponse(w, map[string]interface{}{
+		"deleted": affected,
+	})
 }
 
 func (explorer *DbExplorer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
