@@ -185,24 +185,22 @@ func (receiver *RequestParams) ParseRequestURL(url *url.URL) error {
 		ls := q.Get("limit")
 		os := q.Get("offset")
 		l, e := strconv.Atoi(ls)
-		if len(ls) > 0 && e != nil {
-			return e
+		if len(ls) > 0 && e == nil {
+			receiver.Limit = l
 		}
-		receiver.Limit = l
 		o, e := strconv.Atoi(os)
-		if len(ls) > 0 && e != nil {
-			return e
+		if len(ls) > 0 && e == nil {
+			receiver.Offset = o
 		}
-		receiver.Offset = o
+
 	} else if isTwoSlashLong(url) {
 		split := strings.Split(noPrefixPath, "/")
 		receiver.Table = split[0]
 		ids := split[1]
 		id, e := strconv.Atoi(ids)
-		if e != nil {
-			return e
+		if len(ids) > 0 && e == nil {
+			receiver.Id = id
 		}
-		receiver.Id = id
 	}
 
 	return nil

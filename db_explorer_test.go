@@ -38,6 +38,11 @@ func TestTableLimitOffset(t *testing.T) {
 	UrlParsingTest(t, u, &RequestParams{Table: "$table", Limit: 5, Offset: 7}, nil)
 }
 
+func TestTableLimitOffsetBroken(t *testing.T) {
+	u, _ := url.Parse("https://host.com/$table?limit=5")
+	UrlParsingTest(t, u, &RequestParams{Table: "$table", Limit: 5}, nil)
+}
+
 func TestTable(t *testing.T) {
 	u, _ := url.Parse("https://host.com/$table")
 	UrlParsingTest(t, u, &RequestParams{Table: "$table"}, nil)
