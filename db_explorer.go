@@ -37,33 +37,73 @@ func readTables(db *sql.DB) ([]string, error) {
 	return tables, nil
 }
 
-func readTypes(db *sql.DB, tableName string) ([]*sql.ColumnType, error) {
-	s := fmt.Sprintf("SELECT * FROM %s", tableName)
+type ColumnInfo struct {
+	Name       string
+	Type       string
+	Nullable   bool
+	PrimaryKey bool
+}
+
+type Any = interface{}
+
+func (receiver *ColumnInfo) Parse(scanArgs []Any) error {
+	// Field(0) Type(1) Null(3) Key(4)
+	receiver.Name = *(scanArgs[0].(*string))
+	receiver.Type = *(scanArgs[1].(*string))
+	receiver.Nullable = *(scanArgs[3].(*string)) == "YES"
+	receiver.PrimaryKey = *(scanArgs[4].(*string)) == "PRI"
+
+	return nil
+}
+
+func readTypes(db *sql.DB, tableName string) ([]ColumnInfo, error) {
+	s := fmt.Sprintf("SHOW FULL COLUMNS FROM `%s`", tableName)
 	rows, qe := db.Query(s)
 
 	if qe != nil {
 		return nil, qe
 	}
-	colTypes, cte := rows.ColumnTypes()
 
-	if cte != nil {
-		return nil, cte
-	}
-	var columnTypes []*sql.ColumnType
-	for _, ct := range colTypes {
-		columnTypes = append(columnTypes, ct)
-	}
-	cle := rows.Close()
+	var columns []ColumnInfo
+	for rows.Next() {
+		column := ColumnInfo{}
+		scanArgs := make([]interface{}, 9)
 
-	if cle != nil {
-		return nil, cle
+		scanArgs[0] = new(string)
+		scanArgs[1] = new(string)
+		scanArgs[2] = new(Any)
+		scanArgs[3] = new(string)
+		scanArgs[4] = new(string)
+		scanArgs[5] = new(Any)
+		scanArgs[6] = new(Any)
+		scanArgs[7] = new(Any)
+		scanArgs[8] = new(Any)
+
+		se := rows.Scan(scanArgs...)
+
+		if se != nil {
+			return nil, se
+		}
+
+		pe := column.Parse(scanArgs)
+
+		if pe != nil {
+			return nil, pe
+		}
+
+		columns = append(columns, column)
+	}
+	ce := rows.Close()
+
+	if ce != nil {
+		return nil, ce
 	}
 
-	return columnTypes, nil
+	return columns, nil
 }
 
 func NewDbExplorer(db *sql.DB) (http.Handler, error) {
-	tableColumns := map[string][]*sql.ColumnType{}
+	tableColumns := map[string][]ColumnInfo{}
 	tables, e := readTables(db)
 
 	fmt.Printf("tables: %v\n", tables)
@@ -84,9 +124,7 @@ func NewDbExplorer(db *sql.DB) (http.Handler, error) {
 
 	for t, v := range tableColumns {
 		for _, ct := range v {
-			nullable, _ := ct.Nullable()
-
-			fmt.Printf("[%v][%v][%v][%v]\n", t, ct.Name(), ct.DatabaseTypeName(), nullable)
+			fmt.Printf("[%v][%v]=%v\n", t, ct.Name, ct)
 		}
 	}
 
@@ -98,7 +136,7 @@ func NewDbExplorer(db *sql.DB) (http.Handler, error) {
 
 type DbExplorer struct {
 	db          *sql.DB
-	columnTypes map[string][]*sql.ColumnType
+	columnTypes map[string][]ColumnInfo
 }
 
 type ApiError struct {
