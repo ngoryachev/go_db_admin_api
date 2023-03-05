@@ -154,7 +154,7 @@ type ServerResponse struct {
 }
 
 func (sr ServerResponse) Marshal() []byte {
-	b, _ := json.Marshal(sr)
+	b, _ := json.MarshalIndent(sr, "", "  ")
 
 	return b
 }
@@ -244,30 +244,23 @@ func (receiver *RequestParams) ParseRequestURL(url *url.URL) error {
 	return nil
 }
 
-func rowsToJson(rows *sql.Rows) ([]interface{}, error) {
-	columnTypes, err := rows.ColumnTypes()
-
-	if err != nil {
-		return nil, err
-	}
-
-	count := len(columnTypes)
+func rowsToJson(infos []ColumnInfo, rows *sql.Rows) ([]interface{}, error) {
+	count := len(infos)
 	finalRows := make([]interface{}, 0, 10)
 
 	for rows.Next() {
 		scanArgs := make([]interface{}, count)
 
 		// заполняем scanArgs указателями на соответсвующий тип
-		for i, v := range columnTypes {
-			switch v.DatabaseTypeName() {
-			case "VARCHAR", "TEXT", "UUID", "TIMESTAMP":
-				scanArgs[i] = new(sql.NullString)
-				break
-			case "BOOL":
-				scanArgs[i] = new(sql.NullBool)
-				break
-			case "INT4":
+		for i, v := range infos {
+			switch v.Type {
+			case "int":
 				scanArgs[i] = new(sql.NullInt64)
+				break
+			case "varchar(255)":
+				fallthrough
+			case "text":
+				scanArgs[i] = new(sql.NullString)
 				break
 			default:
 				scanArgs[i] = new(sql.NullString)
@@ -283,33 +276,18 @@ func rowsToJson(rows *sql.Rows) ([]interface{}, error) {
 		masterData := map[string]interface{}{}
 
 		// на основе scanArgs раскладываем в мапу masterData правильные значения
-		for i, v := range columnTypes {
-			if z, ok := (scanArgs[i]).(*sql.NullBool); ok {
-				masterData[v.Name()] = z.Bool
-				continue
-			}
-
+		for i, v := range infos {
 			if z, ok := (scanArgs[i]).(*sql.NullString); ok {
-				masterData[v.Name()] = z.String
+				masterData[v.Name] = z.String
 				continue
 			}
 
 			if z, ok := (scanArgs[i]).(*sql.NullInt64); ok {
-				masterData[v.Name()] = z.Int64
+				masterData[v.Name] = z.Int64
 				continue
 			}
 
-			if z, ok := (scanArgs[i]).(*sql.NullFloat64); ok {
-				masterData[v.Name()] = z.Float64
-				continue
-			}
-
-			if z, ok := (scanArgs[i]).(*sql.NullInt32); ok {
-				masterData[v.Name()] = z.Int32
-				continue
-			}
-
-			masterData[v.Name()] = scanArgs[i]
+			masterData[v.Name] = scanArgs[i]
 		}
 
 		finalRows = append(finalRows, masterData)
@@ -335,7 +313,7 @@ func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *htt
 	panicOnError(rp.ParseRequestURL(r.URL))
 	rows, qe := explorer.db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT %d OFFSET %d", rp.Table, rp.Limit, rp.Offset))
 	panicOnError(qe)
-	js, je := rowsToJson(rows)
+	js, je := rowsToJson(explorer.columnTypes[rp.Table], rows)
 	panicOnError(je)
 	err := rows.Close()
 	panicOnError(err)
@@ -350,7 +328,7 @@ func (explorer *DbExplorer) handleGetTableEntity(w http.ResponseWriter, r *http.
 	panicOnError(rp.ParseRequestURL(r.URL))
 	rows, qe := explorer.db.Query(fmt.Sprintf("SELECT * FROM %s WHERE id='%d'", rp.Table, rp.Id))
 	panicOnError(qe)
-	js, je := rowsToJson(rows)
+	js, je := rowsToJson(explorer.columnTypes[rp.Table], rows)
 	panicOnError(je)
 	err := rows.Close()
 	panicOnError(err)
