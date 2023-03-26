@@ -10,6 +10,24 @@ import (
 	"strings"
 )
 
+func maps(in []string, fn func(string) string) []string {
+	ret := make([]string, len(in))
+	for i, v := range in {
+		ret[i] = fn(v)
+	}
+
+	return ret
+}
+
+func keys(m map[string]Any) []string {
+	var keys []string
+	for k, _ := range m {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
 func readTables(db *sql.DB) ([]string, error) {
 	rows, qe := db.Query("SHOW TABLES")
 
@@ -46,7 +64,7 @@ type ColumnInfo struct {
 
 type Any = interface{}
 
-func (receiver *ColumnInfo) Parse(scanArgs []Any) error {
+func (receiver *ColumnInfo) ParseFullColumn(scanArgs []Any) error {
 	// Field(0) Type(1) Null(3) Key(4)
 	receiver.Name = *(scanArgs[0].(*string))
 	receiver.Type = *(scanArgs[1].(*string))
@@ -54,6 +72,38 @@ func (receiver *ColumnInfo) Parse(scanArgs []Any) error {
 	receiver.PrimaryKey = *(scanArgs[4].(*string)) == "PRI"
 
 	return nil
+}
+
+func (receiver *ColumnInfo) ParseFormValue(form url.Values) (Any, error) {
+	name := receiver.Name
+	nullable := receiver.Nullable
+	tp := receiver.Type
+	pk := receiver.PrimaryKey
+	fhas := form.Has(name)
+	fsval := form.Get(name)
+
+	if fhas {
+		if pk {
+			return nil, nil
+		} else {
+			switch tp {
+			case "int":
+				return strconv.Atoi(fsval)
+			case "varchar(255)":
+				fallthrough
+			case "text":
+				return fsval, nil
+			default:
+				return fsval, nil
+			}
+		}
+	} else {
+		if nullable {
+			return nil, nil
+		} else {
+			return nil, fmt.Errorf("%s is nil", name)
+		}
+	}
 }
 
 func readTypes(db *sql.DB, tableName string) ([]ColumnInfo, error) {
@@ -85,7 +135,7 @@ func readTypes(db *sql.DB, tableName string) ([]ColumnInfo, error) {
 			return nil, se
 		}
 
-		pe := column.Parse(scanArgs)
+		pe := column.ParseFullColumn(scanArgs)
 
 		if pe != nil {
 			return nil, pe
@@ -296,6 +346,30 @@ func rowsToJson(infos []ColumnInfo, rows *sql.Rows) ([]interface{}, error) {
 	return finalRows, nil
 }
 
+func (explorer *DbExplorer) findPK(tableName string) (string, error) {
+	columns := explorer.columnTypes[tableName]
+
+	if columns != nil {
+		for _, col := range columns {
+			if col.PrimaryKey {
+				return col.Name, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("cannot find pk")
+}
+
+func anyToSQLValue(any Any) (string, error) {
+	if i, iok := any.(int); iok {
+		return fmt.Sprintf("%d", i), nil
+	} else if s, sok := any.(string); sok {
+		return fmt.Sprintf("'%s'", s), nil
+	}
+
+	return "", fmt.Errorf("anyToSQLValue: no such type")
+}
+
 //GET / - возвращает список все таблиц (которые мы можем использовать в дальнейших запросах)
 func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, r *http.Request) {
 	var keys []string
@@ -315,8 +389,7 @@ func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *htt
 	panicOnError(qe)
 	js, je := rowsToJson(explorer.columnTypes[rp.Table], rows)
 	panicOnError(je)
-	err := rows.Close()
-	panicOnError(err)
+	panicOnError(rows.Close())
 	handleServerResponse(w, map[string]interface{}{
 		"records": js,
 	})
@@ -326,29 +399,69 @@ func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *htt
 func (explorer *DbExplorer) handleGetTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	rows, qe := explorer.db.Query(fmt.Sprintf("SELECT * FROM %s WHERE id='%d'", rp.Table, rp.Id))
+	pk, e := explorer.findPK(rp.Table)
+	panicOnError(e)
+	rows, qe := explorer.db.Query(fmt.Sprintf("SELECT * FROM %s WHERE %s='%d'", rp.Table, pk, rp.Id))
 	panicOnError(qe)
 	js, je := rowsToJson(explorer.columnTypes[rp.Table], rows)
 	panicOnError(je)
-	err := rows.Close()
-	panicOnError(err)
-	var record interface{}
-	if len(js) == 0 {
-		record = nil
-	}
+	panicOnError(rows.Close())
+
 	if len(js) > 0 {
-		record = js[0]
+		record := js[0]
+		handleServerResponse(w, map[string]interface{}{
+			"record": record,
+		})
+	} else {
+		handleServerError(w, http.StatusNotFound, fmt.Errorf("not found"))
 	}
-	handleServerResponse(w, map[string]interface{}{
-		"record": record,
-	})
 }
 
 //PUT /$table - создаёт новую запись, данный по записи в теле запроса (POST- параметры)
 func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	handleServerResponse(w, rp)
+	panicOnError(r.ParseForm())
+
+	columnInfo := explorer.columnTypes[rp.Table]
+	kv := make(map[string]Any, 5)
+	pk, pke := explorer.findPK(rp.Table)
+	panicOnError(pke)
+
+	for _, v := range columnInfo {
+		if v.PrimaryKey {
+			continue
+		}
+
+		name := v.Name
+		val, pe := v.ParseFormValue(r.Form)
+		fmt.Printf("[ParseFormValue]\n")
+		fmt.Printf("%v: %v\n", name, val)
+
+		panicOnError(pe)
+
+		if val != nil {
+			kv[name] = val
+		}
+	}
+
+	ks := keys(kv)
+	fmt.Printf("[kv]: %v\n", kv)
+	fmt.Printf("[ks]: %v\n", ks)
+	values := maps(ks, func(k string) string {
+		s, e := anyToSQLValue(kv[k])
+		panicOnError(e)
+
+		return s
+	})
+	//ks = maps(ks, func(s string) string { return fmt.Sprintf("`%s`", s) })
+	insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", rp.Table, strings.Join(ks, ", "), strings.Join(values, ", "))
+	fmt.Println(insert)
+	result, ee := explorer.db.Exec(insert)
+	panicOnError(ee)
+	lastInsertedId, ie := result.LastInsertId()
+	panicOnError(ie)
+	handleServerResponse(w, map[string]interface{}{pk: lastInsertedId})
 }
 
 //POST /$table/$id - обновляет запись, данные приходят в теле запроса (POST- параметры)
