@@ -462,7 +462,45 @@ func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.
 func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	handleServerResponse(w, rp)
+	panicOnError(r.ParseForm())
+
+	columnInfo := explorer.columnTypes[rp.Table]
+	kv := make(map[string]Any, 5)
+	pk, pke := explorer.findPK(rp.Table)
+	panicOnError(pke)
+
+	for _, v := range columnInfo {
+		if v.PrimaryKey {
+			continue
+		}
+
+		name := v.Name
+		val, pe := v.ParseFormValue(r.Form)
+		fmt.Printf("[ParseFormValue]\n")
+		fmt.Printf("%v: %v\n", name, val)
+
+		if val != nil && pe == nil {
+			kv[name] = val
+		}
+	}
+
+	ks := keys(kv)
+
+	if len(ks) == 0 {
+		handleServerResponse(w, map[string]interface{}{"updated": 0})
+
+		return
+	}
+
+	values := mapAny(ks, func(k string) Any { return kv[k] })
+	subs := strings.Join(maps(ks, func(s string) string { return fmt.Sprintf("`%s`=?", s) }), ", ")
+	update := fmt.Sprintf("UPDATE %s SET %s WHERE %s='%d'", rp.Table, subs, pk, rp.Id)
+	fmt.Println(update)
+	result, ee := explorer.db.Exec(update, values...)
+	panicOnError(ee)
+	rowsAffected, ie := result.RowsAffected()
+	panicOnError(ie)
+	handleServerResponse(w, map[string]interface{}{"updated": rowsAffected})
 }
 
 //DELETE /$table/$id - удаляет запись
