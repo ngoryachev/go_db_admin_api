@@ -237,7 +237,7 @@ func handleServerResponse(w http.ResponseWriter, response interface{}) {
 
 func errorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println("errorMiddleware", r.URL.Path)
+		//  fmt.Println("errorMiddleware", r.URL.Path)
 		defer func() {
 			if err := recover(); err != nil {
 				fmt.Println("recovered", err)
@@ -469,7 +469,9 @@ func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http
 func (explorer *DbExplorer) handleDeleteTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	result, ee := explorer.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE id='%d'", rp.Table, rp.Id))
+	pk, pke := explorer.findPK(rp.Table)
+	panicOnError(pke)
+	result, ee := explorer.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE %s='%d'", rp.Table, pk, rp.Id))
 	panicOnError(ee)
 	affected, ae := result.RowsAffected()
 	panicOnError(ae)
