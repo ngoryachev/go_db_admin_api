@@ -19,9 +19,18 @@ func maps(in []string, fn func(string) string) []string {
 	return ret
 }
 
+func mapAny(in []string, fn func(string) Any) []Any {
+	ret := make([]Any, len(in))
+	for i, v := range in {
+		ret[i] = fn(v)
+	}
+
+	return ret
+}
+
 func keys(m map[string]Any) []string {
 	var keys []string
-	for k, _ := range m {
+	for k := range m {
 		keys = append(keys, k)
 	}
 
@@ -79,22 +88,22 @@ func (receiver *ColumnInfo) ParseFormValue(form url.Values) (Any, error) {
 	nullable := receiver.Nullable
 	tp := receiver.Type
 	pk := receiver.PrimaryKey
-	fhas := form.Has(name)
-	fsval := form.Get(name)
+	formHas := form.Has(name)
+	formStringVal := form.Get(name)
 
-	if fhas {
+	if formHas {
 		if pk {
 			return nil, nil
 		} else {
 			switch tp {
 			case "int":
-				return strconv.Atoi(fsval)
+				return strconv.Atoi(formStringVal)
 			case "varchar(255)":
 				fallthrough
 			case "text":
-				return fsval, nil
+				return formStringVal, nil
 			default:
-				return fsval, nil
+				return formStringVal, nil
 			}
 		}
 	} else {
@@ -360,20 +369,10 @@ func (explorer *DbExplorer) findPK(tableName string) (string, error) {
 	return "", fmt.Errorf("cannot find pk")
 }
 
-func anyToSQLValue(any Any) (string, error) {
-	if i, iok := any.(int); iok {
-		return fmt.Sprintf("%d", i), nil
-	} else if s, sok := any.(string); sok {
-		return fmt.Sprintf("'%s'", s), nil
-	}
-
-	return "", fmt.Errorf("anyToSQLValue: no such type")
-}
-
 //GET / - возвращает список все таблиц (которые мы можем использовать в дальнейших запросах)
-func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, r *http.Request) {
+func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, _ *http.Request) {
 	var keys []string
-	for k, _ := range explorer.columnTypes {
+	for k := range explorer.columnTypes {
 		keys = append(keys, k)
 	}
 	handleServerResponse(w, map[string]interface{}{
@@ -448,16 +447,11 @@ func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.
 	ks := keys(kv)
 	fmt.Printf("[kv]: %v\n", kv)
 	fmt.Printf("[ks]: %v\n", ks)
-	values := maps(ks, func(k string) string {
-		s, e := anyToSQLValue(kv[k])
-		panicOnError(e)
-
-		return s
-	})
-	//ks = maps(ks, func(s string) string { return fmt.Sprintf("`%s`", s) })
-	insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", rp.Table, strings.Join(ks, ", "), strings.Join(values, ", "))
+	values := mapAny(ks, func(k string) Any { return kv[k] })
+	qs := maps(ks, func(k string) string { return "?" })
+	insert := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", rp.Table, strings.Join(ks, ", "), strings.Join(qs, ", "))
 	fmt.Println(insert)
-	result, ee := explorer.db.Exec(insert)
+	result, ee := explorer.db.Exec(insert, values...)
 	panicOnError(ee)
 	lastInsertedId, ie := result.LastInsertId()
 	panicOnError(ie)
