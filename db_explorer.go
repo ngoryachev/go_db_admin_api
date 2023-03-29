@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -207,9 +208,19 @@ func (ae ApiError) Error() string {
 	return ae.Err.Error()
 }
 
-type ServerResponse struct {
+type ServerError struct {
 	Error    string      `json:"error"`
 	Response interface{} `json:"response,omitempty"`
+}
+
+type ServerResponse struct {
+	Response interface{} `json:"response,omitempty"`
+}
+
+func (sr ServerError) Marshal() []byte {
+	b, _ := json.MarshalIndent(sr, "", "  ")
+
+	return b
 }
 
 func (sr ServerResponse) Marshal() []byte {
@@ -220,7 +231,7 @@ func (sr ServerResponse) Marshal() []byte {
 
 func handleServerError(w http.ResponseWriter, httpStatus int, err error) {
 	w.WriteHeader(httpStatus)
-	w.Write(ServerResponse{
+	w.Write(ServerError{
 		Error: ApiError{
 			httpStatus,
 			err,
@@ -230,7 +241,6 @@ func handleServerError(w http.ResponseWriter, httpStatus int, err error) {
 
 func handleServerResponse(w http.ResponseWriter, response interface{}) {
 	w.Write(ServerResponse{
-		Error:    "",
 		Response: response,
 	}.Marshal())
 }
@@ -337,12 +347,21 @@ func rowsToJson(infos []ColumnInfo, rows *sql.Rows) ([]interface{}, error) {
 		// на основе scanArgs раскладываем в мапу masterData правильные значения
 		for i, v := range infos {
 			if z, ok := (scanArgs[i]).(*sql.NullString); ok {
-				masterData[v.Name] = z.String
+				if z.Valid {
+					masterData[v.Name] = z.String
+				} else {
+					masterData[v.Name] = nil
+				}
+
 				continue
 			}
 
 			if z, ok := (scanArgs[i]).(*sql.NullInt64); ok {
-				masterData[v.Name] = z.Int64
+				if z.Valid {
+					masterData[v.Name] = z.Int64
+				} else {
+					masterData[v.Name] = nil
+				}
 				continue
 			}
 
@@ -369,12 +388,21 @@ func (explorer *DbExplorer) findPK(tableName string) (string, error) {
 	return "", fmt.Errorf("cannot find pk")
 }
 
+func (explorer *DbExplorer) tableShouldExist(tableName string) error {
+	if _, exists := explorer.columnTypes[tableName]; exists {
+		return nil
+	}
+
+	return fmt.Errorf("unknown table")
+}
+
 //GET / - возвращает список все таблиц (которые мы можем использовать в дальнейших запросах)
 func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, _ *http.Request) {
 	var keys []string
 	for k := range explorer.columnTypes {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	handleServerResponse(w, map[string]interface{}{
 		"tables": keys,
 	})
@@ -384,6 +412,17 @@ func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, _ *htt
 func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
+
+	if te := explorer.tableShouldExist(rp.Table); te != nil {
+		handleServerError(w, 404, te)
+
+		return
+	}
+
+	if rp.Limit == 0 {
+		rp.Limit = 1000
+	}
+
 	rows, qe := explorer.db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT %d OFFSET %d", rp.Table, rp.Limit, rp.Offset))
 	panicOnError(qe)
 	js, je := rowsToJson(explorer.columnTypes[rp.Table], rows)
@@ -412,7 +451,7 @@ func (explorer *DbExplorer) handleGetTableEntity(w http.ResponseWriter, r *http.
 			"record": record,
 		})
 	} else {
-		handleServerError(w, http.StatusNotFound, fmt.Errorf("not found"))
+		handleServerError(w, http.StatusNotFound, fmt.Errorf("record not found"))
 	}
 }
 
@@ -548,7 +587,7 @@ func (explorer *DbExplorer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	case "PUT":
-		if isOneSlashLong(r.URL) {
+		if isTwoSlashLong(r.URL) {
 			errorMiddleware(http.HandlerFunc(explorer.handlePutTableEntity)).ServeHTTP(w, r)
 		} else {
 			handleServerError(w, http.StatusNotAcceptable, fmt.Errorf("bad method"))
