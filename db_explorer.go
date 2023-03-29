@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"sort"
@@ -84,27 +85,41 @@ func (receiver *ColumnInfo) ParseFullColumn(scanArgs []Any) error {
 	return nil
 }
 
-func (receiver *ColumnInfo) ParseFormValue(form url.Values) (Any, error) {
+func (receiver *ColumnInfo) ParseBodyMapValue(body map[string]Any) (Any, error) {
 	name := receiver.Name
 	nullable := receiver.Nullable
-	tp := receiver.Type
+	t := receiver.Type
 	pk := receiver.PrimaryKey
-	formHas := form.Has(name)
-	formStringVal := form.Get(name)
+	val, has := body[name]
 
-	if formHas {
+	fmt.Printf("name:%v, nullable:%v, t:%v, pk:%v, val:%v, has: %v\n", name, nullable, t, pk, val, has)
+
+	if has {
 		if pk {
 			return nil, nil
 		} else {
-			switch tp {
+			if val == nil && nullable {
+				return nil, nil
+			}
+
+			switch t {
 			case "int":
-				return strconv.Atoi(formStringVal)
+				if i, ok := val.(int); ok {
+					return i, nil
+				} else {
+					return nil, fmt.Errorf("cannot parse %s", name)
+				}
+
 			case "varchar(255)":
 				fallthrough
 			case "text":
-				return formStringVal, nil
+				if s, ok := val.(string); ok {
+					return s, nil
+				} else {
+					return nil, fmt.Errorf("cannot parse %s", name)
+				}
 			default:
-				return formStringVal, nil
+				return nil, fmt.Errorf("cannot parse uncovered case")
 			}
 		}
 	} else {
@@ -457,9 +472,15 @@ func (explorer *DbExplorer) handleGetTableEntity(w http.ResponseWriter, r *http.
 
 //PUT /$table - создаёт новую запись, данный по записи в теле запроса (POST- параметры)
 func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("PUT>")
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	panicOnError(r.ParseForm())
+	body, re := ioutil.ReadAll(r.Body)
+	panicOnError(re)
+	var data map[string]interface{}
+	fmt.Printf("body: %v\n", data)
+	ue := json.Unmarshal(body, &data)
+	panicOnError(ue)
 
 	columnInfo := explorer.columnTypes[rp.Table]
 	kv := make(map[string]Any, 5)
@@ -472,10 +493,7 @@ func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.
 		}
 
 		name := v.Name
-		val, pe := v.ParseFormValue(r.Form)
-		fmt.Printf("[ParseFormValue]\n")
-		fmt.Printf("%v: %v\n", name, val)
-
+		val, pe := v.ParseBodyMapValue(data)
 		panicOnError(pe)
 
 		if val != nil {
@@ -495,30 +513,37 @@ func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.
 	lastInsertedId, ie := result.LastInsertId()
 	panicOnError(ie)
 	handleServerResponse(w, map[string]interface{}{pk: lastInsertedId})
+	fmt.Println("<PUT")
 }
 
 //POST /$table/$id - обновляет запись, данные приходят в теле запроса (POST- параметры)
 func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("POST>")
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
-	panicOnError(r.ParseForm())
+	body, re := ioutil.ReadAll(r.Body)
+	panicOnError(re)
+	var data map[string]interface{}
+	ue := json.Unmarshal(body, &data)
+	panicOnError(ue)
+	//panicOnError(r.ParseForm())
 
 	columnInfo := explorer.columnTypes[rp.Table]
 	kv := make(map[string]Any, 5)
 	pk, pke := explorer.findPK(rp.Table)
 	panicOnError(pke)
 
+	fmt.Printf("[ParseBodyMapValue]\n")
 	for _, v := range columnInfo {
 		if v.PrimaryKey {
 			continue
 		}
 
 		name := v.Name
-		val, pe := v.ParseFormValue(r.Form)
-		fmt.Printf("[ParseFormValue]\n")
+		val, pe := v.ParseBodyMapValue(data)
 		fmt.Printf("%v: %v\n", name, val)
 
-		if val != nil && pe == nil {
+		if pe == nil {
 			kv[name] = val
 		}
 	}
@@ -535,11 +560,13 @@ func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http
 	subs := strings.Join(maps(ks, func(s string) string { return fmt.Sprintf("`%s`=?", s) }), ", ")
 	update := fmt.Sprintf("UPDATE %s SET %s WHERE %s='%d'", rp.Table, subs, pk, rp.Id)
 	fmt.Println(update)
+	fmt.Println(values)
 	result, ee := explorer.db.Exec(update, values...)
 	panicOnError(ee)
 	rowsAffected, ie := result.RowsAffected()
 	panicOnError(ie)
 	handleServerResponse(w, map[string]interface{}{"updated": rowsAffected})
+	fmt.Println("<POST")
 }
 
 //DELETE /$table/$id - удаляет запись
