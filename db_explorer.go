@@ -85,7 +85,36 @@ func (receiver *ColumnInfo) ParseFullColumn(scanArgs []Any) error {
 	return nil
 }
 
-func (receiver *ColumnInfo) ParseBodyMapValue(body map[string]Any) (Any, error) {
+func ParseIntValue(val Any, name string) (int, error) {
+	if i, ok := val.(int); ok {
+		return i, nil
+	} else {
+		return 0, fmt.Errorf("field %s have invalid type", name)
+	}
+}
+
+func ParseStringValue(val Any, name string) (string, error) {
+	if i, ok := val.(string); ok {
+		return i, nil
+	} else {
+		return "", fmt.Errorf("field %s have invalid type", name)
+	}
+}
+
+func ParseByColumnType(name, t string, val Any) (Any, error) {
+	switch t {
+	case "int":
+		return ParseIntValue(val, name)
+	case "varchar(255)":
+		fallthrough
+	case "text":
+		return ParseStringValue(val, name)
+	default:
+		return nil, fmt.Errorf("cannot parse type: %s", t)
+	}
+}
+
+func (receiver *ColumnInfo) ParseJsonValue(body map[string]Any, ignoreMissing, ignorePk bool) (Any, bool, error) {
 	name := receiver.Name
 	nullable := receiver.Nullable
 	t := receiver.Type
@@ -96,37 +125,27 @@ func (receiver *ColumnInfo) ParseBodyMapValue(body map[string]Any) (Any, error) 
 
 	if has {
 		if pk {
-			return nil, nil
+			if ignorePk {
+				return nil, false, nil
+			} else {
+				v, e := ParseByColumnType(name, t, val)
+
+				return v, true, e
+			}
 		} else {
 			if val == nil && nullable {
-				return nil, nil
+				return nil, true, nil
 			}
 
-			switch t {
-			case "int":
-				if i, ok := val.(int); ok {
-					return i, nil
-				} else {
-					return nil, fmt.Errorf("cannot parse %s", name)
-				}
+			v, e := ParseByColumnType(name, t, val)
 
-			case "varchar(255)":
-				fallthrough
-			case "text":
-				if s, ok := val.(string); ok {
-					return s, nil
-				} else {
-					return nil, fmt.Errorf("cannot parse %s", name)
-				}
-			default:
-				return nil, fmt.Errorf("cannot parse uncovered case")
-			}
+			return v, true, e
 		}
 	} else {
-		if nullable {
-			return nil, nil
+		if nullable || ignoreMissing {
+			return nil, false, nil
 		} else {
-			return nil, fmt.Errorf("%s is nil", name)
+			return nil, false, fmt.Errorf("%s is missing", name)
 		}
 	}
 }
@@ -493,7 +512,7 @@ func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.
 		}
 
 		name := v.Name
-		val, pe := v.ParseBodyMapValue(data)
+		val, _, pe := v.ParseJsonValue(data, false, true)
 		panicOnError(pe)
 
 		if val != nil {
@@ -534,16 +553,30 @@ func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http
 	panicOnError(pke)
 
 	fmt.Printf("[ParseBodyMapValue]\n")
+	fmt.Printf("data: %v\n", data)
 	for _, v := range columnInfo {
-		if v.PrimaryKey {
+		isPk := v.PrimaryKey
+		name := v.Name
+		val, has, pe := v.ParseJsonValue(data, true, false)
+		fmt.Printf("%v: %v\n", name, val)
+
+		if isPk {
+			if has && pe != nil {
+				handleServerError(w, http.StatusBadRequest, pe)
+
+				return
+			}
+
 			continue
 		}
 
-		name := v.Name
-		val, pe := v.ParseBodyMapValue(data)
-		fmt.Printf("%v: %v\n", name, val)
+		if pe != nil {
+			handleServerError(w, http.StatusBadRequest, pe)
 
-		if pe == nil {
+			return
+		}
+
+		if has {
 			kv[name] = val
 		}
 	}
