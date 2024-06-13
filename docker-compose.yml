@@ -9,7 +9,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: 1234
       MYSQL_DATABASE: golang
-      MYSQL_USER: root
+      MYSQL_USER: user
       MYSQL_PASSWORD: 1234
     volumes:
       - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
@@ -29,6 +29,6 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: root
+      DB_USER: user
       DB_PASSWORD: 1234
       DB_NAME: golang
