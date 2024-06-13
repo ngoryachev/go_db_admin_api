@@ -11,6 +11,8 @@ WORKDIR /app
 
 # Клонируем репозиторий
 RUN git clone -b feature/naiv https://github.com/ngoryachev/go_db_admin_api.git .
+
+# Выводим ветку
 RUN cd /app && git rev-parse --abbrev-ref HEAD
 
 # Компилируем программу
