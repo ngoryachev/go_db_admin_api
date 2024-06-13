@@ -1,20 +1,22 @@
-// тут лежит тестовый код
-// менять вам может потребоваться только коннект к базе
 package main
 
 import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"os"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
 var (
-	// DSN это соединение с базой
-	// вы можете изменить этот на тот который вам нужен
-	// docker run -p 3306:3306 -v $(PWD):/docker-entrypoint-initdb.d -e MYSQL_ROOT_PASSWORD=1234 -e MYSQL_DATABASE=golang -d mysql
-	DSN = "user:1234@tcp(db:3306)/golang?charset=utf8"
+	user     = os.Getenv("DB_USER")
+	password = os.Getenv("DB_PASSWORD")
+	host     = os.Getenv("DB_HOST")
+	port     = os.Getenv("DB_PORT")
+	dbname   = os.Getenv("DB_NAME")
+
+	DSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8", user, password, host, port, dbname)
 )
 
 func main() {
