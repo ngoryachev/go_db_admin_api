@@ -17,8 +17,8 @@ CREATE TABLE `operations` (
     `operation_type` int NOT NULL,
     `product_id` int NOT NULL,
     `agent_id` int NOT NULL,
-    `place_id_from` int,
-    `place_id_to` int,
+    `place_id_from` int NOT NULL,
+    `place_id_to` int NOT NULL,
     `at` varchar(255) NOT NULL,
     `count` int NOT NULL,
     `price_actual` int NOT NULL
