@@ -28,6 +28,16 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func jsonMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set header
+		w.Header().Set("Content-Type", "application/json")
+
+		// Next
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	// Получение переменных окружения
 	user := os.Getenv("DB_USER")
@@ -64,5 +74,5 @@ func main() {
 	}
 
 	fmt.Println("starting server at :8082")
-	http.ListenAndServe(":8082", corsMiddleware(handler))
+	http.ListenAndServe(":8082", corsMiddleware(jsonMiddleware(handler)))
 }
