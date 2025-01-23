@@ -9,11 +9,8 @@ RUN apk add --no-cache git
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Клонируем репозиторий
-RUN git clone -b feature/naiv https://github.com/ngoryachev/go_db_admin_api.git .
-
-# Выводим ветку
-RUN cd /app && git rev-parse --abbrev-ref HEAD
+# Копируем локальные файлы в контейнер
+COPY . .
 
 # Компилируем программу
 RUN go build -o go_db_admin_api

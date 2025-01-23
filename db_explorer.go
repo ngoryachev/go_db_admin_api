@@ -88,8 +88,10 @@ func (receiver *ColumnInfo) ParseFullColumn(scanArgs []Any) error {
 func ParseIntValue(val Any, name string) (int, error) {
 	if i, ok := val.(int); ok {
 		return i, nil
+	} else if f, ok := val.(float64); ok {
+		return int(f), nil
 	} else {
-		return 0, fmt.Errorf("field %s have invalid type", name)
+		return 0, fmt.Errorf("field %s have invalid type %T instead of int", name, val)
 	}
 }
 
@@ -97,7 +99,7 @@ func ParseStringValue(val Any, name string) (string, error) {
 	if i, ok := val.(string); ok {
 		return i, nil
 	} else {
-		return "", fmt.Errorf("field %s have invalid type", name)
+		return "", fmt.Errorf("field %s have invalid type %T instead of string", name, val)
 	}
 }
 
@@ -430,7 +432,7 @@ func (explorer *DbExplorer) tableShouldExist(tableName string) error {
 	return fmt.Errorf("unknown table")
 }
 
-//GET / - возвращает список все таблиц (которые мы можем использовать в дальнейших запросах)
+// GET / - возвращает список все таблиц (которые мы можем использовать в дальнейших запросах)
 func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, _ *http.Request) {
 	var keys []string
 	for k := range explorer.columnTypes {
@@ -442,7 +444,7 @@ func (explorer *DbExplorer) handleGetShowAllTables(w http.ResponseWriter, _ *htt
 	})
 }
 
-//GET /$table?limit=5&offset=7 - возвращает список из 5 записей (limit) начиная с 7-й (offset) из таблицы $table. limit по-умолчанию 5, offset 0
+// GET /$table?limit=5&offset=7 - возвращает список из 5 записей (limit) начиная с 7-й (offset) из таблицы $table. limit по-умолчанию 5, offset 0
 func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
@@ -467,7 +469,7 @@ func (explorer *DbExplorer) handleGetTableEntities(w http.ResponseWriter, r *htt
 	})
 }
 
-//GET /$table/$id - возвращает информацию о самой записи или 404
+// GET /$table/$id - возвращает информацию о самой записи или 404
 func (explorer *DbExplorer) handleGetTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
@@ -489,7 +491,7 @@ func (explorer *DbExplorer) handleGetTableEntity(w http.ResponseWriter, r *http.
 	}
 }
 
-//PUT /$table - создаёт новую запись, данный по записи в теле запроса (POST- параметры)
+// PUT /$table - создаёт новую запись, данный по записи в теле запроса (POST- параметры)
 func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("PUT>")
 	rp := &RequestParams{}
@@ -535,7 +537,7 @@ func (explorer *DbExplorer) handlePutTableEntity(w http.ResponseWriter, r *http.
 	fmt.Println("<PUT")
 }
 
-//POST /$table/$id - обновляет запись, данные приходят в теле запроса (POST- параметры)
+// POST /$table/$id - обновляет запись, данные приходят в теле запроса (POST- параметры)
 func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("POST>")
 	rp := &RequestParams{}
@@ -602,7 +604,7 @@ func (explorer *DbExplorer) handlePostTableEntity(w http.ResponseWriter, r *http
 	fmt.Println("<POST")
 }
 
-//DELETE /$table/$id - удаляет запись
+// DELETE /$table/$id - удаляет запись
 func (explorer *DbExplorer) handleDeleteTableEntity(w http.ResponseWriter, r *http.Request) {
 	rp := &RequestParams{}
 	panicOnError(rp.ParseRequestURL(r.URL))
